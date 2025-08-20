@@ -93,7 +93,7 @@ interface ApiErrorResponse {
 }
 
 // Use environment variables for sensitive data
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://3docorp.id.vn/save_docs.php";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://3docorp.id.vn/save_docs.php";
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "3docorp_fixed_key_2025";
 
 export default function DocsPage() {
