@@ -40,7 +40,7 @@ import {
 } from "lucide-react";
 
 // TipTap core
-import { EditorContent, useEditor } from "@tiptap/react";
+import { EditorContent, useEditor, Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Underline from "@tiptap/extension-underline";
@@ -53,11 +53,11 @@ import ImageExt from "@tiptap/extension-image";
 import CharacterCount from "@tiptap/extension-character-count";
 import Typography from "@tiptap/extension-typography";
 
-// ✅ Lowlight v3: tạo instance rồi mới register ngôn ngữ
+// Lowlight v3
 import { createLowlight } from "lowlight";
 import javascript from "highlight.js/lib/languages/javascript";
 import typescript from "highlight.js/lib/languages/typescript";
-import xml from "highlight.js/lib/languages/xml"; // html/xml
+import xml from "highlight.js/lib/languages/xml";
 import css from "highlight.js/lib/languages/css";
 import json from "highlight.js/lib/languages/json";
 import bash from "highlight.js/lib/languages/bash";
@@ -81,7 +81,6 @@ import { TableCell } from "@tiptap/extension-table-cell";
 import { TaskList } from "@tiptap/extension-task-list";
 import { TaskItem } from "@tiptap/extension-task-item";
 
-
 interface DocumentDto {
   docId: string;
   title: string;
@@ -89,25 +88,30 @@ interface DocumentDto {
   passwordHash?: string;
 }
 
-const API_URL = "http://3docorp.id.vn/save_docs.php"; // ⚠️ Nên chuyển sang API route server-side để không lộ key
-const API_KEY = "3docorp_fixed_key_2025";            // ⚠️ Không nên để key ở client production
+interface ApiErrorResponse {
+  error: string;
+}
+
+// Use environment variables for sensitive data
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://3docorp.id.vn/save_docs.php";
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "3docorp_fixed_key_2025";
 
 export default function DocsPage() {
   const searchParams = useSearchParams();
   const docId = searchParams.get("docId");
 
-  const [title, setTitle] = useState("Untitled Document");
+  const [title, setTitle] = useState<string>("Untitled Document");
   const [documents, setDocuments] = useState<DocumentDto[]>([]);
-  const [showDocSelection, setShowDocSelection] = useState(!docId);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [password, setPassword] = useState("");
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [needsSave, setNeedsSave] = useState(false);
+  const [showDocSelection, setShowDocSelection] = useState<boolean>(!docId);
+  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [password, setPassword] = useState<string>("");
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [error, setError] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(true);
+  const [needsSave, setNeedsSave] = useState<boolean>(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
-  const [textColor, setTextColor] = useState("#111827");
-  const [highlightColor, setHighlightColor] = useState("#fff59d");
+  const [textColor, setTextColor] = useState<string>("#111827");
+  const [highlightColor, setHighlightColor] = useState<string>("#fff59d");
 
   // Derive current doc
   const currentDoc = useMemo(
@@ -115,23 +119,32 @@ export default function DocsPage() {
     [docId, documents]
   );
 
-  // Local persistence of the document list for the picker
+  // Load documents from localStorage
   const loadDocuments = useCallback(async () => {
     try {
       const stored = localStorage.getItem("documentList");
-      if (!stored) return setDocuments([]);
+      if (!stored) {
+        setDocuments([]);
+        return;
+      }
       const parsed = JSON.parse(stored);
       setDocuments(Array.isArray(parsed) ? parsed : []);
     } catch (e) {
+      console.error("Failed to load documents from localStorage:", e);
       setDocuments([]);
     }
   }, []);
 
-  const persistDocumentList = useCallback(
-    (docs: DocumentDto[]) => localStorage.setItem("documentList", JSON.stringify(docs)),
-    []
-  );
+  // Persist document list to localStorage
+  const persistDocumentList = useCallback((docs: DocumentDto[]) => {
+    try {
+      localStorage.setItem("documentList", JSON.stringify(docs));
+    } catch (e) {
+      console.error("Failed to persist document list:", e);
+    }
+  }, []);
 
+  // Save document to API
   const saveDocument = useCallback(
     async (doc: DocumentDto) => {
       try {
@@ -143,31 +156,43 @@ export default function DocsPage() {
           },
           body: JSON.stringify(doc),
         });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data?.error || "Failed to save document");
+        const data: ApiErrorResponse | { success: boolean } = await response.json();
+        if (!response.ok) {
+          throw new Error((data as ApiErrorResponse).error || "Failed to save document");
+        }
 
         const updated = documents.filter((d) => d.docId !== doc.docId).concat(doc);
         setDocuments(updated);
         persistDocumentList(updated);
         setNeedsSave(false);
         setLastSavedAt(new Date().toLocaleTimeString());
-      } catch (e: any) {
-        setError("Lưu tài liệu thất bại: " + (e?.message || "Unknown error"));
+      } catch (e: unknown) {
+        const errorMessage = e instanceof Error ? e.message : "Unknown error";
+        setError(`Lưu tài liệu thất bại: ${errorMessage}`);
       }
     },
     [documents, persistDocumentList]
   );
 
-  const fetchDocument = useCallback(async (id: string) => {
-    const res = await fetch(`${API_URL}?docId=${id}`, {
-      method: "GET",
-      headers: { "X-API-Key": API_KEY },
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.error || "Failed to fetch document");
-    return data as DocumentDto;
+  // Fetch document from API
+  const fetchDocument = useCallback(async (id: string): Promise<DocumentDto | null> => {
+    try {
+      const res = await fetch(`${API_URL}?docId=${id}`, {
+        method: "GET",
+        headers: { "X-API-Key": API_KEY },
+      });
+      const data: DocumentDto | ApiErrorResponse = await res.json();
+      if (!res.ok || "error" in data) {
+        throw new Error((data as ApiErrorResponse).error || "Failed to fetch document");
+      }
+      return data as DocumentDto;
+    } catch (e) {
+      setError("Không tìm thấy tài liệu hoặc lỗi khi tải");
+      return null;
+    }
   }, []);
 
+  // Create new document
   const createNewDocument = useCallback(async () => {
     const newTitle = prompt("Nhập tiêu đề tài liệu:");
     if (!newTitle || newTitle.trim() === "") {
@@ -180,13 +205,13 @@ export default function DocsPage() {
     window.location.href = `/docs?docId=${newDocId}`;
   }, [saveDocument]);
 
-  // Dynamic bcrypt import helpers (avoid bundling on first paint)
-  const comparePassword = useCallback(async (plain: string, hashed: string) => {
+  // Password handling
+  const comparePassword = useCallback(async (plain: string, hashed: string): Promise<boolean> => {
     const bcrypt = await import("bcryptjs");
     return bcrypt.compare(plain, hashed);
   }, []);
 
-  const hashPassword = useCallback(async (plain: string) => {
+  const hashPassword = useCallback(async (plain: string): Promise<string> => {
     const bcrypt = await import("bcryptjs");
     const saltRounds = 10;
     return bcrypt.hash(plain, saltRounds);
@@ -210,6 +235,7 @@ export default function DocsPage() {
     [password, comparePassword]
   );
 
+  // Share document
   const shareDocument = useCallback(
     async (doc: DocumentDto) => {
       const sharePassword = prompt(
@@ -243,19 +269,18 @@ export default function DocsPage() {
       TaskList,
       TaskItem.configure({ nested: true }),
       Table.configure({
-            resizable: true, 
-        }),
+        resizable: true
+      }),
       TableRow,
       TableHeader,
       TableCell,
-      CodeBlockLowlight.configure({ lowlight }), 
+      CodeBlockLowlight.configure({ lowlight }),
       CharacterCount.configure({ limit: 50000 }),
       StarterKit.configure({
         bulletList: { keepMarks: true, keepAttributes: false },
         orderedList: { keepMarks: true, keepAttributes: false },
         codeBlock: false,
-        heading: { levels: [1, 2, 3, 4] },
-        history: true,
+        heading: { levels: [1, 2, 3, 4] }
       }),
       Placeholder.configure({ placeholder: "Nhập nội dung ở đây..." }),
     ],
@@ -265,11 +290,11 @@ export default function DocsPage() {
     },
     editorProps: {
       attributes: { class: "prose max-w-none focus:outline-none" },
-      handlePaste: (view, event) => {
-        const items = (event.clipboardData || (window as any).clipboardData)?.items;
+      handlePaste: (view, event: ClipboardEvent) => {
+        const items = event.clipboardData?.items;
         if (!items) return false;
         for (const item of items) {
-          if (item.type.indexOf("image") === 0) {
+          if (item.type.includes("image")) {
             const file = item.getAsFile();
             if (!file) continue;
             const reader = new FileReader();
@@ -286,31 +311,31 @@ export default function DocsPage() {
     immediatelyRender: false,
   });
 
+  // Initialize editor and load document
   useEffect(() => {
     const initialize = async () => {
       setLoading(true);
       await loadDocuments();
       if (docId) {
-        try {
-          const doc = await fetchDocument(docId);
+        const doc = await fetchDocument(docId);
+        if (doc) {
           setDocuments((prev) => prev.filter((d) => d.docId !== doc.docId).concat(doc));
           setTitle(doc.title);
-          if (editor) editor.commands.setContent(doc.content || "");
+          if (editor) {
+            editor.commands.setContent(doc.content || "");
+          }
           setIsAuthenticated(!doc.passwordHash);
-        } catch (e) {
-          setError("Không tìm thấy tài liệu hoặc lỗi khi tải");
         }
       }
       setLoading(false);
     };
     initialize();
-  }, [docId, editor]);
+  }, [docId, editor, fetchDocument, loadDocuments]);
 
-  // Autosave (debounced)
+  // Autosave
   useEffect(() => {
-    if (!isAuthenticated || !currentDoc || !editor) return;
-    if (!needsSave) return;
-    const t = setTimeout(() => {
+    if (!isAuthenticated || !currentDoc || !editor || !needsSave) return;
+    const timer = setTimeout(() => {
       const updated: DocumentDto = {
         ...currentDoc,
         title,
@@ -318,9 +343,10 @@ export default function DocsPage() {
       };
       saveDocument(updated);
     }, 1500);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [needsSave, isAuthenticated, currentDoc, editor, title, saveDocument]);
 
+  // Prevent navigation if unsaved changes
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
       if (needsSave) {
@@ -360,28 +386,28 @@ export default function DocsPage() {
 
   // Toolbar helpers
   const setLink = useCallback(() => {
-    const url = prompt("Dán liên kết (URL):", editor?.getAttributes("link").href || "https://");
-    if (url === null) return; // cancel
+    if (!editor) return;
+    const url = prompt("Dán liên kết (URL):", editor.getAttributes("link").href || "https://");
+    if (url === null) return;
     if (url === "") {
-      editor?.chain().focus().unsetLink().run();
+      editor.chain().focus().unsetLink().run();
       return;
     }
-    editor?.chain().focus().extendMarkRange("link").setLink({ href: url, target: "_blank" }).run();
+    editor.chain().focus().extendMarkRange("link").setLink({ href: url, target: "_blank" }).run();
   }, [editor]);
 
   const insertImage = useCallback(() => {
-    const url = prompt("Dán URL ảnh hoặc để trống để tải file");
     if (!editor) return;
+    const url = prompt("Dán URL ảnh hoặc để trống để tải file");
     if (url) {
       editor.chain().focus().setImage({ src: url }).run();
       return;
     }
-    // open file picker
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
     input.onchange = () => {
-      const file = (input.files && input.files[0]) || null;
+      const file = input.files?.[0] || null;
       if (!file) return;
       const reader = new FileReader();
       reader.onload = () => editor.chain().focus().setImage({ src: String(reader.result) }).run();
@@ -625,6 +651,7 @@ export default function DocsPage() {
               onClick={() => editor?.chain().focus().undo().run()}
               className="px-2 py-2 rounded-lg bg-gray-100 text-slate-700 hover:bg-emerald-500 hover:text-white"
               title="Hoàn tác (Ctrl+Z)"
+              disabled={!editor?.can().undo()}
             >
               <Undo2 size={16} />
             </button>
@@ -632,6 +659,7 @@ export default function DocsPage() {
               onClick={() => editor?.chain().focus().redo().run()}
               className="px-2 py-2 rounded-lg bg-gray-100 text-slate-700 hover:bg-emerald-500 hover:text-white"
               title="Làm lại (Ctrl+Y)"
+              disabled={!editor?.can().redo()}
             >
               <Redo2 size={16} />
             </button>
@@ -643,6 +671,7 @@ export default function DocsPage() {
                 editor?.isActive("bold") ? "bg-emerald-600 text-white" : "bg-gray-100 text-slate-700"
               } hover:bg-emerald-500 hover:text-white`}
               title="Đậm"
+              disabled={!editor}
             >
               <Bold size={16} />
             </button>
@@ -654,6 +683,7 @@ export default function DocsPage() {
                   : "bg-gray-100 text-slate-700"
               } hover:bg-emerald-500 hover:text-white`}
               title="Nghiêng"
+              disabled={!editor}
             >
               <Italic size={16} />
             </button>
@@ -665,6 +695,7 @@ export default function DocsPage() {
                   : "bg-gray-100 text-slate-700"
               } hover:bg-emerald-500 hover:text-white`}
               title="Gạch chân"
+              disabled={!editor}
             >
               <UnderlineIcon size={16} />
             </button>
@@ -676,6 +707,7 @@ export default function DocsPage() {
                   : "bg-gray-100 text-slate-700"
               } hover:bg-emerald-500 hover:text-white`}
               title="Gạch ngang"
+              disabled={!editor}
             >
               <Strikethrough size={16} />
             </button>
@@ -687,6 +719,7 @@ export default function DocsPage() {
                   : "bg-gray-100 text-slate-700"
               } hover:bg-emerald-500 hover:text-white`}
               title="Khối mã"
+              disabled={!editor}
             >
               <Code2 size={16} />
             </button>
@@ -698,6 +731,7 @@ export default function DocsPage() {
                   : "bg-gray-100 text-slate-700"
               } hover:bg-emerald-500 hover:text-white`}
               title="Trích dẫn"
+              disabled={!editor}
             >
               <Quote size={16} />
             </button>
@@ -711,6 +745,7 @@ export default function DocsPage() {
                   : "bg-gray-100 text-slate-700"
               } hover:bg-emerald-500 hover:text-white`}
               title="Danh sách"
+              disabled={!editor}
             >
               <List size={16} />
             </button>
@@ -722,6 +757,7 @@ export default function DocsPage() {
                   : "bg-gray-100 text-slate-700"
               } hover:bg-emerald-500 hover:text-white`}
               title="Danh sách số"
+              disabled={!editor}
             >
               1.
             </button>
@@ -733,6 +769,7 @@ export default function DocsPage() {
                   : "bg-gray-100 text-slate-700"
               } hover:bg-emerald-500 hover:text-white`}
               title="Checklist"
+              disabled={!editor}
             >
               ✓
             </button>
@@ -759,6 +796,7 @@ export default function DocsPage() {
               }}
               className="px-2 py-2 rounded-lg bg-gray-100 text-slate-700"
               title="Tiêu đề"
+              disabled={!editor}
             >
               <option value="p">Đoạn văn</option>
               <option value="h1">Heading 1</option>
@@ -777,6 +815,7 @@ export default function DocsPage() {
                   : "bg-gray-100 text-slate-700"
               } hover:bg-emerald-500 hover:text-white`}
               title="Căn trái"
+              disabled={!editor}
             >
               <AlignLeft size={16} />
             </button>
@@ -788,6 +827,7 @@ export default function DocsPage() {
                   : "bg-gray-100 text-slate-700"
               } hover:bg-emerald-500 hover:text-white`}
               title="Căn giữa"
+              disabled={!editor}
             >
               <AlignCenter size={16} />
             </button>
@@ -799,6 +839,7 @@ export default function DocsPage() {
                   : "bg-gray-100 text-slate-700"
               } hover:bg-emerald-500 hover:text-white`}
               title="Căn phải"
+              disabled={!editor}
             >
               <AlignRight size={16} />
             </button>
@@ -810,6 +851,7 @@ export default function DocsPage() {
                   : "bg-gray-100 text-slate-700"
               } hover:bg-emerald-500 hover:text-white`}
               title="Giãn đều"
+              disabled={!editor}
             >
               <AlignJustify size={16} />
             </button>
@@ -825,6 +867,7 @@ export default function DocsPage() {
                   editor?.chain()?.focus()?.setColor(e.target.value).run();
                 }}
                 title="Màu chữ"
+                disabled={!editor}
               />
             </div>
             <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-100">
@@ -837,6 +880,7 @@ export default function DocsPage() {
                   editor?.chain().focus().toggleHighlight({ color: e.target.value }).run();
                 }}
                 title="Đánh dấu"
+                disabled={!editor}
               />
             </div>
 
@@ -849,6 +893,7 @@ export default function DocsPage() {
                   : "bg-gray-100 text-slate-700"
               } hover:bg-emerald-500 hover:text-white`}
               title="Chèn liên kết"
+              disabled={!editor}
             >
               <LinkIcon size={16} />
             </button>
@@ -856,6 +901,7 @@ export default function DocsPage() {
               onClick={() => editor?.chain().focus().unsetLink().run()}
               className="px-2 py-2 rounded-lg bg-gray-100 text-slate-700 hover:bg-emerald-500 hover:text-white"
               title="Bỏ liên kết"
+              disabled={!editor || !editor.isActive("link")}
             >
               <Unlink size={16} />
             </button>
@@ -865,6 +911,7 @@ export default function DocsPage() {
               onClick={insertImage}
               className="px-2 py-2 rounded-lg bg-gray-100 text-slate-700 hover:bg-emerald-500 hover:text-white"
               title="Chèn ảnh"
+              disabled={!editor}
             >
               <ImageIcon size={16} />
             </button>
@@ -876,6 +923,7 @@ export default function DocsPage() {
               }
               className="px-2 py-2 rounded-lg bg-gray-100 text-slate-700 hover:bg-emerald-500 hover:text-white"
               title="Chèn bảng"
+              disabled={!editor}
             >
               <Table2 size={16} />
             </button>
@@ -883,6 +931,7 @@ export default function DocsPage() {
               onClick={() => editor?.chain().focus().addColumnAfter().run()}
               className="px-2 py-2 rounded-lg bg-gray-100 text-slate-700 hover:bg-emerald-500 hover:text-white"
               title="Thêm cột"
+              disabled={!editor}
             >
               <Columns size={16} />
             </button>
@@ -890,6 +939,7 @@ export default function DocsPage() {
               onClick={() => editor?.chain().focus().addRowAfter().run()}
               className="px-2 py-2 rounded-lg bg-gray-100 text-slate-700 hover:bg-emerald-500 hover:text-white"
               title="Thêm hàng"
+              disabled={!editor}
             >
               <Rows size={16} />
             </button>
@@ -897,6 +947,7 @@ export default function DocsPage() {
               onClick={() => editor?.chain().focus().deleteColumn().run()}
               className="px-2 py-2 rounded-lg bg-gray-100 text-slate-700 hover:bg-emerald-500 hover:text-white"
               title="Xóa cột"
+              disabled={!editor}
             >
               <Scissors size={16} />
             </button>
@@ -904,6 +955,7 @@ export default function DocsPage() {
               onClick={() => editor?.chain().focus().deleteRow().run()}
               className="px-2 py-2 rounded-lg bg-gray-100 text-slate-700 hover:bg-emerald-500 hover:text-white"
               title="Xóa hàng"
+              disabled={!editor}
             >
               <Trash2 size={16} />
             </button>
@@ -911,6 +963,7 @@ export default function DocsPage() {
               onClick={() => editor?.chain().focus().deleteTable().run()}
               className="px-2 py-2 rounded-lg bg-gray-100 text-slate-700 hover:bg-emerald-500 hover:text-white"
               title="Xóa bảng"
+              disabled={!editor}
             >
               <Trash2 size={16} />
             </button>
@@ -920,6 +973,7 @@ export default function DocsPage() {
               onClick={() => editor?.chain().focus().unsetAllMarks().clearNodes().run()}
               className="px-2 py-2 rounded-lg bg-gray-100 text-slate-700 hover:bg-emerald-500 hover:text-white"
               title="Xóa định dạng"
+              disabled={!editor}
             >
               <Eraser size={16} />
             </button>
@@ -927,6 +981,7 @@ export default function DocsPage() {
               onClick={exportHtml}
               className="px-2 py-2 rounded-lg bg-gray-100 text-slate-700 hover:bg-emerald-500 hover:text-white"
               title="Xuất HTML"
+              disabled={!editor}
             >
               <Download size={16} />
             </button>
