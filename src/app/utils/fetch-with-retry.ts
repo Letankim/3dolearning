@@ -2,23 +2,10 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-const backupApiKeys = [
-  "AIzaSyDZmpBf9FfciLA70iXKb5xCmRv4_C1gQdg",
-  "AIzaSyBvFZ95fFihWvsU1y_MyUPog9wAc6MGwgM",
-  "AIzaSyD_nNj69ny_xpn_zw9xq-Jn2SqeKVIdNbk",
-  "AIzaSyA0W9OssAPQE39iHlVoBGNxpTeXTh1p_4U",
-  "AIzaSyD76fm4WIyiG-0dAA9NM_QniJWHhpmgvXs",
-  "AIzaSyCINGgaYkMy1L2vSavql9a7vVKuz9hE2os",
-  "AIzaSyApv6sMjv_S6x8AjifvXxKWw4az5EV-B2A",
-  "AIzaSyDGEyV7HsZa1x2sPxL2WlaocbJZ3MQASQM",
-  "AIzaSyA_pONzlCOacJIPSR5IzyuyUpJ6hjfBZQs",
-  "AIzaSyBRCJnXbfsGkCAshoHhmbYg2_9QiCvBh4M",
-  "AIzaSyADy4gAIrx3KxAVTn8BrZe0jiiG3vd5Kig",
-  "AIzaSyD4XmvjgtBy7Mg6erCJM6bo2Trbz3mkARE",
-  "AIzaSyB6ss5LyQZ0DpYCxg48B1srKfyh0oxHWs4",
-  "AIzaSyBCoH__3RV5IllD_sbACQljotTzhRytosI",
-]
-
+const backupApiKeys: string[] = process.env.NEXT_PUBLIC_BACKUP_API_KEYS
+  ? process.env.NEXT_PUBLIC_BACKUP_API_KEYS.split(",")
+  : []
+  
 const COOLDOWN_PERIOD = 60000
 const AVAILABLE_MODELS = ["gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-2.5-flash", "gemma-3n-e4b-it"]
 
