@@ -19,9 +19,9 @@ const openSans = Open_Sans({
 })
 
 export const metadata: Metadata = {
-  title: "LearnHub3DO - Nền tảng học trực tuyến",
+  title: "3DOLearning - Nền tảng học trực tuyến",
   description: "Nền tảng học trực tuyến hiện đại với flashcard và thi thử",
-  generator: "v0.app",
+  generator: "3docorp",
 }
 
 export default function RootLayout({
