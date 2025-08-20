@@ -51,11 +51,12 @@ interface CourseProgress {
 }
 
 interface Course {
-  id: string
-  name: string
-  file: string
-  description?: string
+  course_id: string;
+  course_name: string;
+  course_file: string;
+  course_description: string
 }
+
 
 export default function ProgressPage() {
   const [courseProgresses, setCourseProgresses] = useState<CourseProgress[]>([])
@@ -77,7 +78,7 @@ export default function ProgressPage() {
       })
       const data = await response.json()
       if (data.success) {
-        setCourses(data.data.map((c: any) => ({
+        setCourses(data.data.map((c: Course) => ({
           id: c.course_id,
           name: c.course_name,
           file: c.course_file,
@@ -114,10 +115,10 @@ export default function ProgressPage() {
             improvementTrend = recent - previous
           }
 
-          const course = courses.find(c => c.id === courseId)
+          const course = courses.find(c => c.course_id === courseId)
           progresses.push({
             courseId,
-            courseName: course?.name || `Khóa học ${courseId}`,
+            courseName: course?.course_name || `Khóa học ${courseId}`,
             testHistory,
             wrongAnswers,
             averageScore,
@@ -134,8 +135,8 @@ export default function ProgressPage() {
   }
 
   const retryWrongAnswers = (courseId: string) => {
-    const course = courses.find(c => c.id === courseId)
-    const courseFile = course?.file
+    const course = courses.find(c => c.course_id === courseId)
+    const courseFile = course?.course_file
     if (courseFile) {
       window.location.href = `/study?course=${courseId}&file=${courseFile}&mode=wrong`
     }
@@ -343,7 +344,7 @@ export default function ProgressPage() {
                         <div className="space-y-2">
                           <div className="flex gap-2">
                             <Link
-                              href={`/study?course=${progress.courseId}&file=${courses.find(c => c.id === progress.courseId)?.file || ''}`}
+                              href={`/study?course=${progress.courseId}&file=${courses.find(c => c.course_id === progress.courseId)?.course_file || ''}`}
                               className="flex-1"
                             >
                               <button className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-emerald-600 text-emerald-600 rounded-lg hover:bg-emerald-50 transition-colors font-medium">
@@ -352,7 +353,7 @@ export default function ProgressPage() {
                               </button>
                             </Link>
                             <Link
-                              href={`/practice?course=${progress.courseId}&file=${courses.find(c => c.id === progress.courseId)?.file || ''}`}
+                              href={`/practice?course=${progress.courseId}&file=${courses.find(c => c.course_id === progress.courseId)?.course_file || ''}`}
                               className="flex-1"
                             >
                               <button className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium">

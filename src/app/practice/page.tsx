@@ -29,10 +29,10 @@ interface TestResult {
 }
 
 interface Course {
-  id: string
-  name: string
-  file: string
-  description?: string
+  course_id: string
+  course_name: string
+  course_file: string
+  course_description?: string
 }
 
 export default function PracticePage() {
@@ -67,11 +67,11 @@ export default function PracticePage() {
       })
       const data = await response.json()
       if (data.success) {
-        setCourses(data.data.map((c: any) => ({
-          id: c.course_id,
-          name: c.course_name,
-          file: c.course_file,
-          description: c.course_description
+        setCourses(data.data.map((c: Course) => ({
+          course_id: c.course_id,
+          course_name: c.course_name,
+          course_file: c.course_file,
+          course_description: c.course_description
         })))
       } else {
         console.error("Failed to load courses:", data)
@@ -110,17 +110,17 @@ export default function PracticePage() {
   }, [testStarted, showResults, startTime])
 
   const handleCourseSelect = (course: Course) => {
-     window.location.href = `/practice?course=${course.id}&file=${course.file}`;
+     window.location.href = `/practice?course=${course.course_id}&file=${course.course_file}`;
   }
 
-  const handleCourseOther = (course: Course) => {
+  const handleCourseOther = () => {
      window.location.href = `/practice`;
   }
 
   const filteredCourses = courses.filter(
     (course) =>
-      course.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      course.description?.toLowerCase().includes(searchTerm.toLowerCase()),
+      course.course_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      course.course_description?.toLowerCase().includes(searchTerm.toLowerCase()),
   )
 
   if (showCourseSelection) {
@@ -154,23 +154,31 @@ export default function PracticePage() {
               />
             </div>
           </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredCourses.map((course) => (
+            <button
+              key={course.course_id}
+              onClick={() => handleCourseSelect(course)}
+              className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-left hover:shadow-md hover:border-emerald-300 transition-all duration-200"
+            >
+              <div className="flex items-start justify-between mb-3">
+                <Trophy size={24} className="text-emerald-600 flex-shrink-0" />
+                <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-full">
+                  ID: {course.course_id}
+                </span>
+              </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredCourses.map((course) => (
-              <button
-                key={course.id}
-                onClick={() => handleCourseSelect(course)}
-                className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-left hover:shadow-md hover:border-emerald-300 transition-all duration-200"
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <Trophy size={24} className="text-emerald-600 flex-shrink-0" />
-                  <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-full">ID: {course.id}</span>
-                </div>
-                <h3 className="text-lg font-semibold text-slate-800 mb-2 font-work-sans">{course.name}</h3>
-                <p className="text-sm text-slate-600 font-open-sans">{course.description}</p>
-              </button>
-            ))}
-          </div>
+              <h3 className="text-lg font-semibold text-slate-800 mb-2 font-work-sans line-clamp-1">
+                {course.course_name}
+              </h3>
+
+              <p className="text-sm text-slate-600 font-open-sans line-clamp-2">
+                {course.course_description}
+              </p>
+            </button>
+          ))}
+        </div>
+
 
           {filteredCourses.length === 0 && (
             <div className="text-center py-12">
