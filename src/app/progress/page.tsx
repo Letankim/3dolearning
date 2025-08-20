@@ -85,10 +85,8 @@ export default function ProgressPage() {
           description: c.course_description
         })))
       } else {
-        console.error("Failed to load courses:", data)
       }
     } catch (error) {
-      console.error("Error loading courses:", error)
     }
   }
 

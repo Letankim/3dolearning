@@ -31,7 +31,6 @@ export default function HomePage() {
         setCourses(data.data)
       }
     } catch (error) {
-      console.error("Lỗi khi tải khóa học:", error)
     } finally {
       setLoading(false)
     }
@@ -101,6 +100,9 @@ export default function HomePage() {
               </Link>
               <Link href="/progress" className="text-slate-600 hover:text-emerald-600 transition-colors">
                 Tiến độ
+              </Link>
+              <Link href="/docs" className="text-slate-600 hover:text-emerald-600 transition-colors">
+                Tài liệu
               </Link>
             </nav>
 

@@ -74,10 +74,8 @@ export default function PracticePage() {
           course_description: c.course_description
         })))
       } else {
-        console.error("Failed to load courses:", data)
       }
     } catch (error) {
-      console.error("Error loading courses:", error)
     }
   }
 
@@ -194,7 +192,6 @@ export default function PracticePage() {
 
   const loadQuestions = async () => {
     try {
-      console.log("[v0] Loading questions from:", `https://letankim.id.vn/3do_resources/${courseFile}`)
       const response = await fetch(`https://letankim.id.vn/3do_resources/${courseFile}`)
 
       if (!response.ok) {
@@ -202,7 +199,6 @@ export default function PracticePage() {
       }
 
       const data = await response.json()
-      console.log("[v0] Raw API response:", data)
 
       let questionsData = []
       if (data.questions && Array.isArray(data.questions)) {
@@ -210,14 +206,11 @@ export default function PracticePage() {
       } else if (Array.isArray(data)) {
         questionsData = data
       } else {
-        console.error("[v0] Unexpected data structure:", data)
         throw new Error("Invalid data structure")
       }
 
-      console.log("[v0] Processed questions:", questionsData)
       setQuestions(questionsData)
     } catch (error) {
-      console.error("[v0] Error loading questions:", error)
       setQuestions([])
     } finally {
       setLoading(false)

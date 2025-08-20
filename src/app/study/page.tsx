@@ -36,7 +36,7 @@ export default function StudyPage() {
   const [questions, setQuestions] = useState<Question[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
   const [showAnswer, setShowAnswer] = useState(false)
-  const [selectedAnswer, setSelectedAnswer] = useState<string>("")
+  const [selectedAnswers, setSelectedAnswers] = useState<string[]>([])
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(true)
   const [wrongAnswers, setWrongAnswers] = useState<WrongAnswer[]>([])
@@ -67,7 +67,6 @@ export default function StudyPage() {
         }
       }
     } catch (error) {
-      console.error("Error loading wrong answers:", error)
       setWrongAnswers([])
     }
   }
@@ -85,7 +84,6 @@ export default function StudyPage() {
         }
       }
     } catch (error) {
-      console.error("Error loading important questions:", error)
       setImportantQuestions([])
     }
   }
@@ -144,17 +142,14 @@ export default function StudyPage() {
       if (data.success) {
         setCourses(data.data)
       } else {
-        console.error("Failed to load courses:", data)
       }
     } catch (error) {
-      console.error("Error loading courses:", error)
     }
   }
 
   const loadQuestions = async () => {
     if (!courseFile) return
     try {
-      console.log("[v0] Loading questions from:", `https://letankim.id.vn/3do_resources/${courseFile}`)
       const response = await fetch(`https://letankim.id.vn/3do_resources/${courseFile}`)
 
       if (!response.ok) {
@@ -162,7 +157,6 @@ export default function StudyPage() {
       }
 
       const data = await response.json()
-      console.log("[v0] Raw API response:", data)
 
       let questionsData = []
       if (data.questions && Array.isArray(data.questions)) {
@@ -170,14 +164,11 @@ export default function StudyPage() {
       } else if (Array.isArray(data)) {
         questionsData = data
       } else {
-        console.error("[v0] Unexpected data structure:", data)
         throw new Error("Invalid data structure")
       }
 
-      console.log("[v0] Processed questions:", questionsData)
       setQuestions(questionsData)
     } catch (error) {
-      console.error("[v0] Error loading questions:", error)
       setQuestions([])
     } finally {
       setLoading(false)
@@ -245,20 +236,54 @@ export default function StudyPage() {
   }
 
   const handleAnswerSelect = (answer: string) => {
-    if (showAnswer) return
-
-    setSelectedAnswer(answer)
     const currentQuestion = getCurrentQuestions()[currentIndex]
-    const correct = currentQuestion.answers.includes(answer.charAt(0))
-    setIsCorrect(correct)
+    const isMultipleChoice = currentQuestion.answers.length > 1
+
+    if (isMultipleChoice) {
+      // For multiple-choice questions, toggle selection
+      setSelectedAnswers(prev => 
+        prev.includes(answer)
+          ? prev.filter(a => a !== answer)
+          : [...prev, answer]
+      )
+    } else {
+      // For single-choice questions, select and check immediately
+      setSelectedAnswers([answer])
+      const correct = currentQuestion.answers.includes(answer.charAt(0))
+      setIsCorrect(correct)
+      setShowAnswer(true)
+
+      if (!correct) {
+        const existingHighlighted = wrongAnswers.find(wa => wa.question === currentQuestion.question)?.highlightedKeywords || []
+        saveWrongAnswer(
+          currentQuestion.question,
+          answer,
+          currentQuestion.options[currentQuestion.answers[0].charCodeAt(0) - 65],
+          existingHighlighted
+        )
+      } else if (studyMode === "wrong") {
+        removeWrongAnswer(currentQuestion.question)
+      }
+    }
+  }
+
+  const handleCheckAnswers = () => {
+    const currentQuestion = getCurrentQuestions()[currentIndex]
+    const selectedOptions = selectedAnswers.map(a => a.charAt(0))
+    const correctAnswers = currentQuestion.answers
+    const isCorrectResult = selectedOptions.length === correctAnswers.length &&
+      selectedOptions.every(a => correctAnswers.includes(a)) &&
+      correctAnswers.every(a => selectedOptions.includes(a))
+
+    setIsCorrect(isCorrectResult)
     setShowAnswer(true)
 
-    if (!correct) {
+    if (!isCorrectResult) {
       const existingHighlighted = wrongAnswers.find(wa => wa.question === currentQuestion.question)?.highlightedKeywords || []
       saveWrongAnswer(
         currentQuestion.question,
-        answer,
-        currentQuestion.options[currentQuestion.answers[0].charCodeAt(0) - 65],
+        selectedAnswers.join(", "),
+        currentQuestion.answers.map(a => currentQuestion.options[a.charCodeAt(0) - 65]).join(", "),
         existingHighlighted
       )
     } else if (studyMode === "wrong") {
@@ -354,7 +379,7 @@ export default function StudyPage() {
 
   const resetQuestion = () => {
     setShowAnswer(false)
-    setSelectedAnswer("")
+    setSelectedAnswers([])
     setIsCorrect(null)
     setKeywordInput("")
     setSelectedText("")
@@ -415,8 +440,12 @@ export default function StudyPage() {
                   <BookOpen size={24} className="text-emerald-600 flex-shrink-0" />
                   <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-full">ID: {course.course_id}</span>
                 </div>
-                <h3 className="text-lg font-semibold text-slate-800 mb-2 font-work-sans">{course.course_name}</h3>
-                <p className="text-sm text-slate-600 font-open-sans">{course.course_description}</p>
+                <h3 className="text-lg font-semibold text-slate-800 mb-2 font-work-sans line-clamp-1">
+                  {course.course_name}
+                </h3>
+                <p className="text-sm text-slate-600 font-open-sans line-clamp-2">
+                  {course.course_description}
+                </p>
               </button>
             ))}
           </div>
@@ -483,6 +512,7 @@ export default function StudyPage() {
   const progress = ((currentIndex + 1) / currentQuestions.length) * 100
   const isImportant = importantQuestions.includes(currentQuestion.question)
   const hasHighlights = currentHighlighted.length > 0
+  const isMultipleChoice = currentQuestion.answers.length > 1
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -605,9 +635,14 @@ export default function StudyPage() {
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
           <div className="p-6 border-b border-gray-200 flex justify-between items-start">
-            <h2 className="text-lg font-medium text-slate-800 leading-relaxed font-work-sans flex-1 select-text"
-              dangerouslySetInnerHTML={{ __html: highlightText(currentQuestion.question, currentHighlighted) }}
-            ></h2>
+            <div className="flex-1">
+              <h2 className="text-lg font-medium text-slate-800 leading-relaxed font-work-sans select-text"
+                dangerouslySetInnerHTML={{ __html: highlightText(currentQuestion.question, currentHighlighted) }}
+              ></h2>
+              {isMultipleChoice && (
+                <p className="text-sm text-slate-600 font-open-sans mt-2 italic">Chọn nhiều đáp án</p>
+              )}
+            </div>
             <button onClick={toggleImportant} className="ml-2">
               <Star size={24} fill={isImportant ? "gold" : "none"} stroke={isImportant ? "gold" : "currentColor"} />
             </button>
@@ -615,7 +650,7 @@ export default function StudyPage() {
           <div className="p-6">
             <div className="space-y-3">
               {currentQuestion.options.map((option, index) => {
-                const isSelected = selectedAnswer === option
+                const isSelected = selectedAnswers.includes(option)
                 const isCorrectOption = currentQuestion.answers.includes(String.fromCharCode(65 + index))
 
                 let buttonClasses =
@@ -657,6 +692,18 @@ export default function StudyPage() {
               })}
             </div>
 
+            {isMultipleChoice && !showAnswer && (
+              <div className="mt-6">
+                <button
+                  onClick={handleCheckAnswers}
+                  disabled={selectedAnswers.length === 0}
+                  className="w-full px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed font-medium"
+                >
+                  Kiểm tra
+                </button>
+              </div>
+            )}
+
             {showAnswer && (
               <div
                 className={`mt-6 p-4 rounded-lg ${
@@ -669,7 +716,7 @@ export default function StudyPage() {
                 </div>
                 {!isCorrect && (
                   <p className="text-sm font-open-sans">
-                    Đáp án đúng: {currentQuestion.options[currentQuestion.answers[0].charCodeAt(0) - 65]}
+                    Đáp án đúng: {currentQuestion.answers.map(a => currentQuestion.options[a.charCodeAt(0) - 65]).join(", ")}
                   </p>
                 )}
                 {!isCorrect && (
