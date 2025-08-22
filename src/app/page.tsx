@@ -225,7 +225,7 @@ export default function HomePage() {
                     </div>
 
                     <div className="flex gap-2 mt-4">
-                      <Link href={`/study?course=${course.course_id}&file=${course.course_file}`} className="flex-1">
+                      <Link href={`/study?course=${course.course_id}&file=${course.course_file}&courseName=${course.course_name}`} className="flex-1">
                         <button className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-emerald-600 text-emerald-600 rounded-lg hover:bg-emerald-50 transition-colors font-medium">
                           <BookOpen size={16} />
                           Học

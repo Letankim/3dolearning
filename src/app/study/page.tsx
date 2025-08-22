@@ -45,15 +45,16 @@ export default function StudyPage() {
   const [loading, setLoading] = useState(true)
   const [wrongAnswers, setWrongAnswers] = useState<WrongAnswer[]>([])
   const [learnedQuestions, setLearnedQuestions] = useState<string[]>([])
-  const [studyMode, setStudyMode] = useState<"all" | "wrong" | "important" | "learned">(initialMode as "all" | "wrong" | "important" | "learned")
+  const [studyMode, setStudyMode] = useState<"all" | "wrong" | "important" | "learned" | "unlearned">(initialMode as "all" | "wrong" | "important" | "learned" | "unlearned")
   const [wrongQuestions, setWrongQuestions] = useState<Question[]>([])
   const [learnedQuestionsList, setLearnedQuestionsList] = useState<Question[]>([])
+  const [unlearnedQuestionsList, setUnlearnedQuestionsList] = useState<Question[]>([])
   const [importantQuestions, setImportantQuestions] = useState<string[]>([])
   const [importantQuestionsList, setImportantQuestionsList] = useState<Question[]>([])
   const [highlights, setHighlights] = useState<HighlightMap>({})
   const [courses, setCourses] = useState<Course[]>([])
   const [searchTerm, setSearchTerm] = useState("")
-  const [showCourseSelection, setShowCourseSelection] = useState(!courseId || !courseFile);
+  const [showCourseSelection, setShowCourseSelection] = useState(!courseId || !courseFile)
   const [currentHighlighted, setCurrentHighlighted] = useState<string[]>([])
   const [showHighlights, setShowHighlights] = useState(true)
   const [keywordInput, setKeywordInput] = useState("")
@@ -158,6 +159,8 @@ export default function StudyPage() {
       loadImportantQuestionsList()
     } else if (studyMode === "learned") {
       loadLearnedQuestionsList()
+    } else if (studyMode === "unlearned") {
+      loadUnlearnedQuestionsList()
     }
   }, [studyMode, wrongAnswers, importantQuestions, learnedQuestions])
 
@@ -189,6 +192,37 @@ export default function StudyPage() {
       return () => clearTimeout(timer)
     }
   }, [snackbarMessage])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const currentQs = getCurrentQuestions()
+      if (currentQs.length === 0) return
+
+      switch (event.key) {
+        case 'ArrowRight':
+          event.preventDefault()
+          nextQuestion()
+          break
+        case 'ArrowLeft':
+          event.preventDefault()
+          prevQuestion()
+          break
+        case 'ArrowUp':
+          event.preventDefault()
+          if (currentIndex > 0) setCurrentIndex(currentIndex - 1)
+          resetQuestion()
+          break
+        case 'ArrowDown':
+          event.preventDefault()
+          if (currentIndex < currentQs.length - 1) setCurrentIndex(currentIndex + 1)
+          resetQuestion()
+          break
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [currentIndex, studyMode, questionSearchTerm])
 
   const loadCourses = async () => {
     try {
@@ -245,7 +279,7 @@ export default function StudyPage() {
   }
 
   const handleCourseSelect = (course: Course) => {
-    window.location.href = `/study?course=${course.course_id}&file=${course.course_file}&courseName=${course.course_name}`;
+    window.location.href = `/study?course=${course.course_id}&file=${course.course_file}&courseName=${course.course_name}`
   }
 
   const handleBackCourse = () => {
@@ -276,6 +310,12 @@ export default function StudyPage() {
   const loadLearnedQuestionsList = () => {
     const filtered = questions.filter((q) => learnedQuestions.includes(q.question))
     setLearnedQuestionsList(filtered)
+  }
+
+  const loadUnlearnedQuestionsList = () => {
+    const wrongQuestionTexts = wrongAnswers.map((wa) => wa.question)
+    const filtered = questions.filter((q) => !learnedQuestions.includes(q.question) && !wrongQuestionTexts.includes(q.question))
+    setUnlearnedQuestionsList(filtered)
   }
 
   const saveWrongAnswer = (question: string, userAnswer: string, correctAnswer: string) => {
@@ -335,7 +375,9 @@ export default function StudyPage() {
       const correct = currentQuestion.answers.includes(answer.charAt(0))
       setIsCorrect(correct)
       setShowAnswer(true)
-      markAsLearned(currentQuestion.question)
+      if (correct) {
+        markAsLearned(currentQuestion.question)
+      }
 
       if (!correct) {
         saveWrongAnswer(
@@ -359,7 +401,9 @@ export default function StudyPage() {
 
     setIsCorrect(isCorrectResult)
     setShowAnswer(true)
-    markAsLearned(currentQuestion.question)
+    if (isCorrectResult) {
+      markAsLearned(currentQuestion.question)
+    }
 
     if (!isCorrectResult) {
       saveWrongAnswer(
@@ -476,6 +520,7 @@ export default function StudyPage() {
     if (studyMode === "wrong") return wrongQuestions
     if (studyMode === "important") return importantQuestionsList
     if (studyMode === "learned") return learnedQuestionsList
+    if (studyMode === "unlearned") return unlearnedQuestionsList
     return questions
   }
 
@@ -640,6 +685,7 @@ export default function StudyPage() {
   }
 
   const progress = currentQuestions.length > 0 ? ((currentIndex + 1) / currentQuestions.length) * 100 : 0
+  const unlearnedCount = questions.length - learnedQuestions.length - wrongAnswers.length
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -677,12 +723,16 @@ export default function StudyPage() {
                 <Brain size={14} />
                 Đã học ({learnedQuestions.length})
               </span>
+              <span className="inline-flex items-center gap-1 px-3 py-1 bg-purple-100 text-purple-800 text-sm rounded-full font-medium">
+                <BookOpen size={14} />
+                Chưa học ({unlearnedCount})
+              </span>
             </div>
           </div>
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex flex-col sm:flex-row justify-center mb-6 overflow-x-auto">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-1">
             <div className="flex flex-wrap">
@@ -755,6 +805,24 @@ export default function StudyPage() {
                 <Trophy size={16} />
                 Câu đã học ({learnedQuestions.length})
               </button>
+              <button
+                onClick={() => {
+                  setStudyMode("unlearned")
+                  setCurrentIndex(0)
+                  resetQuestion()
+                }}
+                disabled={unlearnedCount === 0}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  studyMode === "unlearned"
+                    ? "bg-emerald-600 text-white"
+                    : unlearnedCount === 0
+                      ? "text-slate-400 cursor-not-allowed"
+                      : "text-slate-600 hover:text-emerald-600 hover:bg-emerald-50"
+                }`}
+              >
+                <BookOpen size={16} />
+                Câu chưa học ({unlearnedCount})
+              </button>
             </div>
           </div>
         </div>
@@ -792,8 +860,8 @@ export default function StudyPage() {
                   >
                     <ArrowRight size={16} />
                   </button>
-                </form>
-              )}
+                </form>   
+            )}
             </div>
 
             <div className="relative">
