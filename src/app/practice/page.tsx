@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
-import { ArrowLeft, CheckCircle, X, Clock, Trophy, RotateCcw, Play, Settings, ArrowRight, Search } from "lucide-react"
+import { ArrowLeft, CheckCircle, X, Clock, Trophy, RotateCcw, Play, Settings, ArrowRight, Search, CheckCircle2 } from "lucide-react"
 import Link from "next/link"
 
 interface Question {
@@ -52,12 +52,13 @@ export default function PracticePage() {
   const [startTime, setStartTime] = useState(0)
   const [timeSpent, setTimeSpent] = useState(0)
   const [testHistory, setTestHistory] = useState<TestResult[]>([])
-
+  const [timeLimit, setTimeLimit] = useState(30) // Default time limit in minutes
+  const [timeLeft, setTimeLeft] = useState(0)
+  const [intervalRef, setIntervalRef] = useState<NodeJS.Timeout | null>(null)
   const [courses, setCourses] = useState<Course[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [showCourseSelection, setShowCourseSelection] = useState(!courseId || !courseFile)
-
-  const [intervalRef, setIntervalRef] = useState<NodeJS.Timeout | null>(null)
+  const [learnedCourseIds, setLearnedCourseIds] = useState<string[]>([])
 
   const loadCourses = async () => {
     try {
@@ -73,6 +74,17 @@ export default function PracticePage() {
           course_file: c.course_file,
           course_description: c.course_description
         })))
+        const learnedIds: string[] = []
+        data.data.forEach((course: Course) => {
+          const stored = localStorage.getItem(`learned_questions_${course.course_id}`)
+          if (stored) {
+            const parsed = JSON.parse(stored)
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              learnedIds.push(course.course_id)
+            }
+          }
+        })
+        setLearnedCourseIds(learnedIds)
       } else {
       }
     } catch (error) {
@@ -96,6 +108,10 @@ export default function PracticePage() {
     if (testStarted && !showResults) {
       const newInterval = setInterval(() => {
         setTimeSpent(Math.floor((Date.now() - startTime) / 1000))
+        setTimeLeft(Math.max(0, timeLimit * 60 - Math.floor((Date.now() - startTime) / 1000)))
+        if (timeLeft <= 0) {
+          finishTest()
+        }
       }, 1000)
       setIntervalRef(newInterval)
       return () => clearInterval(newInterval)
@@ -105,21 +121,25 @@ export default function PracticePage() {
         setIntervalRef(null)
       }
     }
-  }, [testStarted, showResults, startTime])
+  }, [testStarted, showResults, startTime, timeLimit])
 
   const handleCourseSelect = (course: Course) => {
-     window.location.href = `/practice?course=${course.course_id}&file=${course.course_file}`;
+    window.location.href = `/practice?course=${course.course_id}&file=${course.course_file}`
   }
 
   const handleCourseOther = () => {
-     window.location.href = `/practice`;
+    window.location.href = `/practice`
   }
 
   const filteredCourses = courses.filter(
     (course) =>
       course.course_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       course.course_description?.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  ).sort((a, b) => {
+    const aLearned = learnedCourseIds.includes(a.course_id) ? 1 : 0
+    const bLearned = learnedCourseIds.includes(b.course_id) ? 1 : 0
+    return bLearned - aLearned
+  })
 
   if (showCourseSelection) {
     return (
@@ -152,31 +172,38 @@ export default function PracticePage() {
               />
             </div>
           </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredCourses.map((course) => (
-            <button
-              key={course.course_id}
-              onClick={() => handleCourseSelect(course)}
-              className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-left hover:shadow-md hover:border-emerald-300 transition-all duration-200"
-            >
-              <div className="flex items-start justify-between mb-3">
-                <Trophy size={24} className="text-emerald-600 flex-shrink-0" />
-                <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-full">
-                  ID: {course.course_id}
-                </span>
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredCourses.map((course) => (
+              <button
+                key={course.course_id}
+                onClick={() => handleCourseSelect(course)}
+                className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-left hover:shadow-md hover:border-emerald-300 transition-all duration-200"
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <Trophy size={24} className="text-emerald-600 flex-shrink-0" />
+                  <div className="flex flex-col items-end">
+                    <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-full">
+                      #COURSE{course.course_id}
+                    </span>
+                    {learnedCourseIds.includes(course.course_id) && (
+                     <span className="flex items-center gap-1 text-xs text-blue-500 bg-blue-100 px-2 py-1 rounded-full mt-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Đã học
+                        </span>
+                    )}
+                  </div>
+                </div>
 
-              <h3 className="text-lg font-semibold text-slate-800 mb-2 font-work-sans line-clamp-1">
-                {course.course_name}
-              </h3>
+                <h3 className="text-lg font-semibold text-slate-800 mb-2 font-work-sans line-clamp-1">
+                  {course.course_name}
+                </h3>
 
-              <p className="text-sm text-slate-600 font-open-sans line-clamp-2">
-                {course.course_description}
-              </p>
-            </button>
-          ))}
-        </div>
-
+                <p className="text-sm text-slate-600 font-open-sans line-clamp-2">
+                  {course.course_description}
+                </p>
+              </button>
+            ))}
+          </div>
 
           {filteredCourses.length === 0 && (
             <div className="text-center py-12">
@@ -232,7 +259,7 @@ export default function PracticePage() {
     setCurrentIndex(0)
     setTestStarted(true)
     setStartTime(Date.now())
-    setTimeSpent(0)
+    setTimeLeft(timeLimit * 60)
   }
 
   const handleAnswerSelect = (answer: string) => {
@@ -254,6 +281,10 @@ export default function PracticePage() {
   }
 
   const finishTest = () => {
+    if (intervalRef) {
+      clearInterval(intervalRef)
+      setIntervalRef(null)
+    }
     const finalTimeSpent = Math.floor((Date.now() - startTime) / 1000)
     let correctCount = 0
     const questionResults = testQuestions.map((question, index) => {
@@ -302,6 +333,14 @@ export default function PracticePage() {
     }
   }
 
+  const handleBackClick = () => {
+    if (testStarted && !showResults && window.confirm("Bạn chắc chắn muốn nộp bài?")) {
+      finishTest()
+    } else if (!testStarted || showResults) {
+      setShowCourseSelection(true)
+    }
+  }
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
     const secs = seconds % 60
@@ -327,7 +366,7 @@ export default function PracticePage() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center h-16">
               <button
-                onClick={() => setShowCourseSelection(true)}
+                onClick={handleBackClick}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
                 <ArrowLeft size={20} />
@@ -425,7 +464,7 @@ export default function PracticePage() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center h-16">
               <button
-                onClick={() => setShowCourseSelection(true)}
+                onClick={handleBackClick}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
                 <ArrowLeft size={20} />
@@ -467,6 +506,21 @@ export default function PracticePage() {
                     onChange={(e) => setNumQuestions(Math.min(Number.parseInt(e.target.value) || 1, questions.length))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-colors font-open-sans"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2 font-open-sans">
+                    Giới hạn thời gian (phút)
+                  </label>
+                  <select
+                    value={timeLimit}
+                    onChange={(e) => setTimeLimit(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-colors font-open-sans"
+                  >
+                    <option value={15}>15 phút</option>
+                    <option value={30}>30 phút</option>
+                    <option value={45}>45 phút</option>
+                    <option value={60}>60 phút</option>
+                  </select>
                 </div>
                 <div className="text-sm text-slate-600 space-y-1 font-open-sans">
                   <p>• Câu hỏi sẽ được chọn ngẫu nhiên</p>
@@ -542,7 +596,7 @@ export default function PracticePage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center">
-              <button onClick={resetTest} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+              <button onClick={handleBackClick} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
                 <ArrowLeft size={20} />
               </button>
               <div className="ml-4">
@@ -556,7 +610,7 @@ export default function PracticePage() {
             <div className="flex items-center gap-4">
               <div className="flex items-center text-slate-600">
                 <Clock size={16} className="mr-1" />
-                <span className="text-sm font-open-sans">{formatTime(timeSpent)}</span>
+                <span className="text-sm font-open-sans">{formatTime(timeLeft)}</span>
               </div>
               <span className="px-3 py-1 bg-gray-100 text-gray-700 text-sm rounded-full font-medium">
                 {answeredCount}/{testQuestions.length} đã trả lời

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { BookOpen, Brain, Trophy, Search, Play, Sun, Moon } from "lucide-react"
+import { BookOpen, Brain, Trophy, Search, Play, Sun, Moon, CheckCircle2 } from "lucide-react"
 import Link from "next/link"
 
 interface Course {
@@ -15,6 +15,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [darkMode, setDarkMode] = useState(false)
+  const [learnedCourseIds, setLearnedCourseIds] = useState<string[]>([])
 
   useEffect(() => {
     loadCourses()
@@ -29,6 +30,17 @@ export default function HomePage() {
       const data = await response.json()
       if (data.success) {
         setCourses(data.data)
+        const learnedIds: string[] = []
+        data.data.forEach((course: Course) => {
+          const stored = localStorage.getItem(`learned_questions_${course.course_id}`)
+          if (stored) {
+            const parsed = JSON.parse(stored)
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              learnedIds.push(course.course_id)
+            }
+          }
+        })
+        setLearnedCourseIds(learnedIds)
       }
     } catch (error) {
     } finally {
@@ -40,7 +52,11 @@ export default function HomePage() {
     (course) =>
       course.course_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       course.course_id.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  ).sort((a, b) => {
+    const aLearned = learnedCourseIds.includes(a.course_id) ? 1 : 0
+    const bLearned = learnedCourseIds.includes(b.course_id) ? 1 : 0
+    return bLearned - aLearned
+  })
 
   const getCourseCategory = (courseName: string) => {
     const prefix = courseName.substring(0, 3)
@@ -195,9 +211,17 @@ export default function HomePage() {
                           {getCourseCategory(course.course_name)}
                         </span>
                       </div>
-                      <span className="px-3 py-1 bg-gray-100 text-gray-700 text-sm rounded-full font-medium">
-                        {course.course_id}
-                      </span>
+                      <div className="flex flex-col items-end">
+                        <span className="px-3 py-1 bg-gray-100 text-gray-700 text-sm rounded-full font-medium">
+                          {course.course_id}
+                        </span>
+                        {learnedCourseIds.includes(course.course_id) && (
+                           <span className="flex items-center gap-1 text-xs text-blue-500 bg-blue-100 px-2 py-1 rounded-full mt-1">
+                            <CheckCircle2 className="w-3 h-3" />
+                             Đã học
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     <div className="flex gap-2 mt-4">

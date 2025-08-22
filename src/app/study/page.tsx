@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useSearchParams } from "next/navigation"
-import { ArrowLeft, CheckCircle, X, BookOpen, Brain, Trophy, RotateCcw, ArrowRight, Search, Star, ToggleLeft, ToggleRight, Plus, Copy } from "lucide-react"
+import { ArrowLeft, CheckCircle, X, BookOpen, Brain, Trophy, RotateCcw, ArrowRight, Search, Star, ToggleLeft, ToggleRight, Plus, Copy, CheckCircle2 } from "lucide-react"
 import Link from "next/link"
 
 interface Question {
@@ -17,7 +17,10 @@ interface WrongAnswer {
   userAnswer: string
   correctAnswer: string
   timestamp: number
-  highlightedKeywords?: string[]
+}
+
+interface HighlightMap {
+  [question: string]: string[]
 }
 
 interface Course {
@@ -28,8 +31,9 @@ interface Course {
 }
 
 export default function StudyPage() {
-  const searchParams = useSearchParams()
+  const searchParams = useSearchParams();
   const courseId = searchParams.get("course")
+  const courseName = searchParams.get("courseName")
   const courseFile = searchParams.get("file")
   const initialMode = searchParams.get("mode") || "all"
 
@@ -40,17 +44,26 @@ export default function StudyPage() {
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(true)
   const [wrongAnswers, setWrongAnswers] = useState<WrongAnswer[]>([])
-  const [studyMode, setStudyMode] = useState<"all" | "wrong" | "important">(initialMode as "all" | "wrong" | "important")
+  const [learnedQuestions, setLearnedQuestions] = useState<string[]>([])
+  const [studyMode, setStudyMode] = useState<"all" | "wrong" | "important" | "learned">(initialMode as "all" | "wrong" | "important" | "learned")
   const [wrongQuestions, setWrongQuestions] = useState<Question[]>([])
+  const [learnedQuestionsList, setLearnedQuestionsList] = useState<Question[]>([])
   const [importantQuestions, setImportantQuestions] = useState<string[]>([])
   const [importantQuestionsList, setImportantQuestionsList] = useState<Question[]>([])
+  const [highlights, setHighlights] = useState<HighlightMap>({})
   const [courses, setCourses] = useState<Course[]>([])
   const [searchTerm, setSearchTerm] = useState("")
-  const [showCourseSelection, setShowCourseSelection] = useState(!courseId || !courseFile)
+  const [showCourseSelection, setShowCourseSelection] = useState(!courseId || !courseFile);
   const [currentHighlighted, setCurrentHighlighted] = useState<string[]>([])
   const [showHighlights, setShowHighlights] = useState(true)
   const [keywordInput, setKeywordInput] = useState("")
   const [selectedText, setSelectedText] = useState("")
+  const [questionSearchTerm, setQuestionSearchTerm] = useState("")
+  const [jumpToQuestion, setJumpToQuestion] = useState("")
+  const [showSearchInput, setShowSearchInput] = useState(false)
+  const [showJumpInput, setShowJumpInput] = useState(false)
+  const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null)
+  const [learnedCourseIds, setLearnedCourseIds] = useState<string[]>([])
 
   const selectionTimeout = useRef<NodeJS.Timeout | null>(null)
 
@@ -88,6 +101,40 @@ export default function StudyPage() {
     }
   }
 
+  const loadLearnedQuestions = () => {
+    if (!courseId) return
+    try {
+      const stored = localStorage.getItem(`learned_questions_${courseId}`)
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        if (Array.isArray(parsed)) {
+          setLearnedQuestions(parsed)
+        } else {
+          setLearnedQuestions([])
+        }
+      }
+    } catch (error) {
+      setLearnedQuestions([])
+    }
+  }
+
+  const loadHighlights = () => {
+    if (!courseId) return
+    try {
+      const stored = localStorage.getItem(`highlights_${courseId}`)
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        if (typeof parsed === 'object' && parsed !== null) {
+          setHighlights(parsed)
+        } else {
+          setHighlights({})
+        }
+      }
+    } catch (error) {
+      setHighlights({})
+    }
+  }
+
   useEffect(() => {
     if (showCourseSelection) {
       loadCourses()
@@ -97,6 +144,8 @@ export default function StudyPage() {
       loadQuestions()
       loadWrongAnswers()
       loadImportantQuestions()
+      loadLearnedQuestions()
+      loadHighlights()
     } else {
       setLoading(false)
     }
@@ -107,21 +156,23 @@ export default function StudyPage() {
       loadWrongQuestions()
     } else if (studyMode === "important") {
       loadImportantQuestionsList()
+    } else if (studyMode === "learned") {
+      loadLearnedQuestionsList()
     }
-  }, [studyMode, wrongAnswers, importantQuestions])
+  }, [studyMode, wrongAnswers, importantQuestions, learnedQuestions])
 
   useEffect(() => {
     const currentQuestion = getCurrentQuestions()[currentIndex]
     if (currentQuestion) {
-      const existingWrong = wrongAnswers.find(wa => wa.question === currentQuestion.question)
-      setCurrentHighlighted(existingWrong?.highlightedKeywords || [])
+      const highlighted = highlights[currentQuestion.question] || []
+      setCurrentHighlighted(highlighted)
       setSelectedText("")
       setKeywordInput("")
     }
-  }, [currentIndex, studyMode, wrongAnswers])
+  }, [currentIndex, studyMode, highlights, questionSearchTerm])
 
   useEffect(() => {
-    if (showAnswer && !isCorrect) {
+    if (showAnswer) {
       document.addEventListener('mouseup', handleTextSelect)
       return () => {
         document.removeEventListener('mouseup', handleTextSelect)
@@ -130,7 +181,14 @@ export default function StudyPage() {
         }
       }
     }
-  }, [showAnswer, isCorrect])
+  }, [showAnswer])
+
+  useEffect(() => {
+    if (snackbarMessage) {
+      const timer = setTimeout(() => setSnackbarMessage(null), 3000)
+      return () => clearTimeout(timer)
+    }
+  }, [snackbarMessage])
 
   const loadCourses = async () => {
     try {
@@ -141,6 +199,17 @@ export default function StudyPage() {
       const data = await response.json()
       if (data.success) {
         setCourses(data.data)
+        const learnedIds: string[] = []
+        data.data.forEach((course: Course) => {
+          const stored = localStorage.getItem(`learned_questions_${course.course_id}`)
+          if (stored) {
+            const parsed = JSON.parse(stored)
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              learnedIds.push(course.course_id)
+            }
+          }
+        })
+        setLearnedCourseIds(learnedIds)
       } else {
       }
     } catch (error) {
@@ -176,7 +245,7 @@ export default function StudyPage() {
   }
 
   const handleCourseSelect = (course: Course) => {
-    window.location.href = `/study?course=${course.course_id}&file=${course.course_file}`
+    window.location.href = `/study?course=${course.course_id}&file=${course.course_file}&courseName=${course.course_name}`;
   }
 
   const handleBackCourse = () => {
@@ -187,7 +256,11 @@ export default function StudyPage() {
     (course) =>
       course.course_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       course.course_description?.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  ).sort((a, b) => {
+    const aLearned = learnedCourseIds.includes(a.course_id) ? 1 : 0
+    const bLearned = learnedCourseIds.includes(b.course_id) ? 1 : 0
+    return bLearned - aLearned
+  })
 
   const loadWrongQuestions = () => {
     const wrongQuestionTexts = wrongAnswers.map((wa) => wa.question)
@@ -200,27 +273,21 @@ export default function StudyPage() {
     setImportantQuestionsList(filtered)
   }
 
-  const saveWrongAnswer = (question: string, userAnswer: string, correctAnswer: string, highlighted: string[]) => {
+  const loadLearnedQuestionsList = () => {
+    const filtered = questions.filter((q) => learnedQuestions.includes(q.question))
+    setLearnedQuestionsList(filtered)
+  }
+
+  const saveWrongAnswer = (question: string, userAnswer: string, correctAnswer: string) => {
     const wrongAnswer: WrongAnswer = {
       question,
       userAnswer,
       correctAnswer,
       timestamp: Date.now(),
-      highlightedKeywords: highlighted,
     }
 
     const existing = wrongAnswers.filter((wa) => wa.question !== question)
     const updated = [...existing, wrongAnswer]
-    setWrongAnswers(updated)
-    if (courseId) {
-      localStorage.setItem(`wrong_answers_${courseId}`, JSON.stringify(updated))
-    }
-  }
-
-  const updateWrongHighlights = (question: string, highlighted: string[]) => {
-    const updated = wrongAnswers.map(wa => 
-      wa.question === question ? { ...wa, highlightedKeywords: highlighted } : wa
-    )
     setWrongAnswers(updated)
     if (courseId) {
       localStorage.setItem(`wrong_answers_${courseId}`, JSON.stringify(updated))
@@ -235,31 +302,46 @@ export default function StudyPage() {
     }
   }
 
+  const markAsLearned = (question: string) => {
+    if (!learnedQuestions.includes(question)) {
+      const updated = [...learnedQuestions, question]
+      setLearnedQuestions(updated)
+      if (courseId) {
+        localStorage.setItem(`learned_questions_${courseId}`, JSON.stringify(updated))
+      }
+    }
+  }
+
+  const updateHighlights = (question: string, newHighlights: string[]) => {
+    const updated = { ...highlights, [question]: newHighlights }
+    setHighlights(updated)
+    if (courseId) {
+      localStorage.setItem(`highlights_${courseId}`, JSON.stringify(updated))
+    }
+  }
+
   const handleAnswerSelect = (answer: string) => {
     const currentQuestion = getCurrentQuestions()[currentIndex]
     const isMultipleChoice = currentQuestion.answers.length > 1
 
     if (isMultipleChoice) {
-      // For multiple-choice questions, toggle selection
       setSelectedAnswers(prev => 
         prev.includes(answer)
           ? prev.filter(a => a !== answer)
           : [...prev, answer]
       )
     } else {
-      // For single-choice questions, select and check immediately
       setSelectedAnswers([answer])
       const correct = currentQuestion.answers.includes(answer.charAt(0))
       setIsCorrect(correct)
       setShowAnswer(true)
+      markAsLearned(currentQuestion.question)
 
       if (!correct) {
-        const existingHighlighted = wrongAnswers.find(wa => wa.question === currentQuestion.question)?.highlightedKeywords || []
         saveWrongAnswer(
           currentQuestion.question,
           answer,
-          currentQuestion.options[currentQuestion.answers[0].charCodeAt(0) - 65],
-          existingHighlighted
+          currentQuestion.options[currentQuestion.answers[0].charCodeAt(0) - 65]
         )
       } else if (studyMode === "wrong") {
         removeWrongAnswer(currentQuestion.question)
@@ -277,14 +359,13 @@ export default function StudyPage() {
 
     setIsCorrect(isCorrectResult)
     setShowAnswer(true)
+    markAsLearned(currentQuestion.question)
 
     if (!isCorrectResult) {
-      const existingHighlighted = wrongAnswers.find(wa => wa.question === currentQuestion.question)?.highlightedKeywords || []
       saveWrongAnswer(
         currentQuestion.question,
         selectedAnswers.join(", "),
-        currentQuestion.answers.map(a => currentQuestion.options[a.charCodeAt(0) - 65]).join(", "),
-        existingHighlighted
+        currentQuestion.answers.map(a => currentQuestion.options[a.charCodeAt(0) - 65]).join(", ")
       )
     } else if (studyMode === "wrong") {
       removeWrongAnswer(currentQuestion.question)
@@ -321,7 +402,7 @@ export default function StudyPage() {
       const newHighlighted = [...currentHighlighted, trimmedKeyword]
       setCurrentHighlighted(newHighlighted)
       const currentQuestion = getCurrentQuestions()[currentIndex]
-      updateWrongHighlights(currentQuestion.question, newHighlighted)
+      updateHighlights(currentQuestion.question, newHighlighted)
       setKeywordInput("")
       setSelectedText("")
     }
@@ -340,7 +421,7 @@ export default function StudyPage() {
     const newHighlighted = currentHighlighted.filter(k => k !== keyword)
     setCurrentHighlighted(newHighlighted)
     const currentQuestion = getCurrentQuestions()[currentIndex]
-    updateWrongHighlights(currentQuestion.question, newHighlighted)
+    updateHighlights(currentQuestion.question, newHighlighted)
   }
 
   const toggleImportant = () => {
@@ -391,10 +472,54 @@ export default function StudyPage() {
     return text.replace(regex, '<mark class="bg-yellow-200">$1</mark>')
   }
 
-  const getCurrentQuestions = () => {
+  const getBaseQuestions = () => {
     if (studyMode === "wrong") return wrongQuestions
     if (studyMode === "important") return importantQuestionsList
+    if (studyMode === "learned") return learnedQuestionsList
     return questions
+  }
+
+  const getCurrentQuestions = () => {
+    const base = getBaseQuestions()
+    if (questionSearchTerm) {
+      return base.filter(q => q.question.toLowerCase().includes(questionSearchTerm.toLowerCase()))
+    }
+    return base
+  }
+
+  const handleJumpToQuestion = (e: React.FormEvent) => {
+    e.preventDefault()
+    const num = parseInt(jumpToQuestion)
+    const currentQs = getCurrentQuestions()
+    if (isNaN(num) || num < 1 || num > currentQs.length) {
+      setSnackbarMessage("Số câu hỏi không hợp lệ")
+      return
+    }
+    setCurrentIndex(num - 1)
+    resetQuestion()
+    setJumpToQuestion("")
+    setShowJumpInput(false)
+  }
+
+  const handleQuestionSearch = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!questionSearchTerm.trim()) {
+      setSnackbarMessage("Vui lòng nhập từ khóa tìm kiếm")
+      return
+    }
+    const currentQs = getCurrentQuestions()
+    const foundIndex = currentQs.findIndex(q => q.question.toLowerCase().includes(questionSearchTerm.toLowerCase()))
+    if (foundIndex !== -1) {
+      setCurrentIndex(foundIndex)
+      resetQuestion()
+    }
+    setShowSearchInput(false)
+  }
+
+  const clearSearchFilter = () => {
+    setQuestionSearchTerm("")
+    setCurrentIndex(0)
+    resetQuestion()
   }
 
   if (showCourseSelection) {
@@ -438,7 +563,17 @@ export default function StudyPage() {
               >
                 <div className="flex items-start justify-between mb-3">
                   <BookOpen size={24} className="text-emerald-600 flex-shrink-0" />
-                  <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-full">ID: {course.course_id}</span>
+                    <div className="flex flex-col items-end">
+                      <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-full">
+                        #COURSE{course.course_id}
+                      </span>
+                      {learnedCourseIds.includes(course.course_id) && (
+                        <span className="flex items-center gap-1 text-xs text-blue-500 bg-blue-100 px-2 py-1 rounded-full mt-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Đã học
+                        </span>
+                      )}
+                    </div>
                 </div>
                 <h3 className="text-lg font-semibold text-slate-800 mb-2 font-work-sans line-clamp-1">
                   {course.course_name}
@@ -473,25 +608,20 @@ export default function StudyPage() {
     )
   }
 
+  const baseQuestions = getBaseQuestions()
   const currentQuestions = getCurrentQuestions()
   const currentQuestion = currentQuestions[currentIndex]
 
-  if (!currentQuestion) {
+  if (baseQuestions.length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 max-w-md w-full text-center">
-          <Trophy size={48} className="text-emerald-600 mx-auto mb-4" />
-          <h3 className="text-xl font-semibold text-slate-800 mb-2 font-work-sans">
-            {studyMode === "wrong" ? "Không có câu sai!" : studyMode === "important" ? "Không có câu quan trọng!" : "Không có câu hỏi"}
-          </h3>
+          <BookOpen size={48} className="text-emerald-600 mx-auto mb-4" />
+          <h3 className="text-xl font-semibold text-slate-800 mb-2 font-work-sans">Không có</h3>
           <p className="text-slate-600 mb-6 font-open-sans">
-            {studyMode === "wrong"
-              ? "Bạn đã ôn tập hết các câu sai. Tuyệt vời!"
-              : studyMode === "important"
-                ? "Bạn chưa đánh dấu câu quan trọng nào."
-                : "Không tìm thấy câu hỏi nào trong khóa học này."}
+            Không tìm thấy câu hỏi nào trong khóa học này.
           </p>
-          <div className="flex gap-3 justify-center">
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <button
               onClick={() => setShowCourseSelection(true)}
               className="px-6 py-2 border border-gray-300 text-slate-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
@@ -509,10 +639,7 @@ export default function StudyPage() {
     )
   }
 
-  const progress = ((currentIndex + 1) / currentQuestions.length) * 100
-  const isImportant = importantQuestions.includes(currentQuestion.question)
-  const hasHighlights = currentHighlighted.length > 0
-  const isMultipleChoice = currentQuestion.answers.length > 1
+  const progress = currentQuestions.length > 0 ? ((currentIndex + 1) / currentQuestions.length) * 100 : 0
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -526,11 +653,13 @@ export default function StudyPage() {
               <ArrowLeft size={20} />
             </button>
             <div className="ml-4 flex-1">
-              <h1 className="text-lg font-semibold text-slate-800 font-work-sans">Chế độ học tập</h1>
-              <p className="text-sm text-slate-600 font-open-sans">Khóa học: {courseId}</p>
-            </div>
-
-            <div className="flex items-center gap-2">
+                <h1 className="text-lg font-semibold text-slate-800 font-work-sans">Chế độ học tập</h1>
+                <p className="text-sm text-slate-600 font-open-sans">
+                  Khóa học: #COURSE{courseId}
+                  {courseName && ` - ${courseName}`}
+                </p>
+              </div>
+            <div className="flex flex-wrap items-center gap-2">
               <img src="https://letankim.id.vn/3do/assets/images/logo.jpg" alt="3DO Logo" className="h-6 w-6 rounded" />
               <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-100 text-emerald-800 text-sm rounded-full font-medium">
                 <BookOpen size={14} />
@@ -544,15 +673,19 @@ export default function StudyPage() {
                 <Star size={14} />
                 Quan trọng ({importantQuestions.length})
               </span>
+              <span className="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full font-medium">
+                <Brain size={14} />
+                Đã học ({learnedQuestions.length})
+              </span>
             </div>
           </div>
         </div>
       </header>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex justify-center mb-6">
+        <div className="flex flex-col sm:flex-row justify-center mb-6 overflow-x-auto">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-1">
-            <div className="flex">
+            <div className="flex flex-wrap">
               <button
                 onClick={() => {
                   setStudyMode("all")
@@ -604,11 +737,29 @@ export default function StudyPage() {
                 <Star size={16} />
                 Câu quan trọng ({importantQuestions.length})
               </button>
+              <button
+                onClick={() => {
+                  setStudyMode("learned")
+                  setCurrentIndex(0)
+                  resetQuestion()
+                }}
+                disabled={learnedQuestions.length === 0}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  studyMode === "learned"
+                    ? "bg-emerald-600 text-white"
+                    : learnedQuestions.length === 0
+                      ? "text-slate-400 cursor-not-allowed"
+                      : "text-slate-600 hover:text-emerald-600 hover:bg-emerald-50"
+                }`}
+              >
+                <Trophy size={16} />
+                Câu đã học ({learnedQuestions.length})
+              </button>
             </div>
           </div>
         </div>
 
-        <div className="flex justify-end mb-4">
+        <div className="flex flex-col sm:flex-row justify-between mb-4 gap-4">
           <button
             onClick={() => setShowHighlights(!showHighlights)}
             className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
@@ -616,12 +767,68 @@ export default function StudyPage() {
             {showHighlights ? <ToggleRight size={20} className="text-emerald-600" /> : <ToggleLeft size={20} className="text-gray-400" />}
             Hiển thị keywords
           </button>
+
+          <div className="flex gap-2">
+            <div className="relative">
+              <button
+                onClick={() => setShowJumpInput(!showJumpInput)}
+                className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <ArrowRight size={20} />
+                Đi đến
+              </button>
+              {showJumpInput && (
+                <form onSubmit={handleJumpToQuestion} className="absolute top-12 left-0 z-10 bg-white border border-gray-300 rounded-lg shadow-md p-2 flex items-center">
+                  <input
+                    type="number"
+                    placeholder="Số câu hỏi"
+                    value={jumpToQuestion}
+                    onChange={(e) => setJumpToQuestion(e.target.value)}
+                    className="w-32 p-2 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none font-open-sans"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-r-lg hover:bg-emerald-700 transition-colors"
+                  >
+                    <ArrowRight size={16} />
+                  </button>
+                </form>
+              )}
+            </div>
+
+            <div className="relative">
+              <button
+                onClick={() => setShowSearchInput(!showSearchInput)}
+                className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <Search size={20} />
+                Tìm kiếm
+              </button>
+              {showSearchInput && (
+                <form onSubmit={handleQuestionSearch} className="absolute top-12 left-0 z-10 bg-white border border-gray-300 rounded-lg shadow-md p-2 flex items-center">
+                  <input
+                    type="text"
+                    placeholder="Tìm kiếm câu hỏi..."
+                    value={questionSearchTerm}
+                    onChange={(e) => setQuestionSearchTerm(e.target.value)}
+                    className="w-48 p-2 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none font-open-sans"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-r-lg hover:bg-emerald-700 transition-colors"
+                  >
+                    <Search size={16} />
+                  </button>
+                </form>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="mb-6">
           <div className="flex justify-between items-center mb-2">
             <span className="text-sm text-slate-600 font-open-sans">
-              Câu {currentIndex + 1} / {currentQuestions.length}
+              Câu {currentQuestions.length > 0 ? currentIndex + 1 : 0} / {currentQuestions.length}
             </span>
             <span className="text-sm text-slate-600 font-open-sans">{Math.round(progress)}%</span>
           </div>
@@ -633,143 +840,157 @@ export default function StudyPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
-          <div className="p-6 border-b border-gray-200 flex justify-between items-start">
-            <div className="flex-1">
-              <h2 className="text-lg font-medium text-slate-800 leading-relaxed font-work-sans select-text"
-                dangerouslySetInnerHTML={{ __html: highlightText(currentQuestion.question, currentHighlighted) }}
-              ></h2>
-              {isMultipleChoice && (
-                <p className="text-sm text-slate-600 font-open-sans mt-2 italic">Chọn nhiều đáp án</p>
+        {currentQuestions.length > 0 && currentQuestion ? (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+            <div className="p-6 border-b border-gray-200 flex justify-between items-start">
+              <div className="flex-1">
+                <h2 className="text-lg font-medium text-slate-800 leading-relaxed font-work-sans select-text"
+                  dangerouslySetInnerHTML={{ __html: highlightText(currentQuestion.question, currentHighlighted) }}
+                ></h2>
+                {currentQuestion.answers.length > 1 && (
+                  <p className="text-sm text-slate-600 font-open-sans mt-2 italic">Chọn nhiều đáp án</p>
+                )}
+              </div>
+              <button onClick={toggleImportant} className="ml-2">
+                <Star size={24} fill={importantQuestions.includes(currentQuestion.question) ? "gold" : "none"} stroke={importantQuestions.includes(currentQuestion.question) ? "gold" : "currentColor"} />
+              </button>
+            </div>
+            <div className="p-6">
+              <div className="space-y-3">
+                {currentQuestion.options.map((option, index) => {
+                  const isSelected = selectedAnswers.includes(option)
+                  const isCorrectOption = currentQuestion.answers.includes(String.fromCharCode(65 + index))
+
+                  let buttonClasses =
+                    "w-full flex items-center justify-between p-4 border rounded-lg text-left transition-all duration-200 min-h-[60px]"
+
+                  if (showAnswer) {
+                    if (isCorrectOption) {
+                      buttonClasses += " bg-green-100 border-green-500 text-green-800"
+                    } else if (isSelected && !isCorrectOption) {
+                      buttonClasses += " bg-red-100 border-red-500 text-red-800"
+                    } else {
+                      buttonClasses += " border-gray-200 text-slate-600"
+                    }
+                  } else if (isSelected) {
+                    buttonClasses += " border-emerald-500 bg-emerald-50 text-emerald-800"
+                  } else {
+                    buttonClasses += " border-gray-200 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
+                  }
+
+                  return (
+                    <button
+                      key={index}
+                      onClick={() => handleAnswerSelect(option)}
+                      disabled={showAnswer}
+                      className={buttonClasses}
+                    >
+                      <div className="flex items-center flex-1">
+                        <span className="font-semibold text-base mr-3 min-w-[20px]">
+                          {String.fromCharCode(65 + index)}.
+                        </span>
+                        <span className="flex-1 text-base font-open-sans select-text"
+                          dangerouslySetInnerHTML={{ __html: highlightText(option.substring(2), currentHighlighted) }}
+                        ></span>
+                      </div>
+                      {showAnswer && isCorrectOption && <CheckCircle size={20} />}
+                      {showAnswer && isSelected && !isCorrectOption && <X size={20} />}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {currentQuestion.answers.length > 1 && !showAnswer && (
+                <div className="mt-6">
+                  <button
+                    onClick={handleCheckAnswers}
+                    disabled={selectedAnswers.length === 0}
+                    className="w-full px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed font-medium"
+                  >
+                    Kiểm tra
+                  </button>
+                </div>
+              )}
+
+              {showAnswer && (
+                <div
+                  className={`mt-6 p-4 rounded-lg ${
+                    isCorrect ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+                  }`}
+                >
+                  <div className="flex items-center mb-2">
+                    {isCorrect ? <CheckCircle size={20} className="mr-2" /> : <X size={20} className="mr-2" />}
+                    <span className="font-semibold font-open-sans">{isCorrect ? "Chính xác!" : "Sai rồi!"}</span>
+                  </div>
+                  {!isCorrect && (
+                    <p className="text-sm font-open-sans">
+                      Đáp án đúng: {currentQuestion.answers.map(a => currentQuestion.options[a.charCodeAt(0) - 65]).join(", ")}
+                    </p>
+                  )}
+                  {!isCorrect && (
+                    <div className="mt-4">
+                      <p className="text-sm italic font-open-sans mb-2">
+                        Chọn văn bản trong câu hỏi hoặc đáp án, nhập trực tiếp keyword.
+                      </p>
+                      <form onSubmit={handleKeywordSubmit} className="flex flex-col sm:flex-row gap-2 items-center">
+                        <input
+                          type="text"
+                          value={keywordInput}
+                          onChange={handleKeywordInput}
+                          placeholder="Nhập keyword để đánh dấu..."
+                          className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none font-open-sans"
+                        />
+                        <button
+                          type="submit"
+                          disabled={!keywordInput.trim()}
+                          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                        >
+                          <Plus size={16} />
+                          Thêm
+                        </button>
+                      </form>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {currentHighlighted.length > 0 && showHighlights && (
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Keywords đã đánh dấu:</label>
+                  <div className="flex flex-wrap gap-2">
+                    {currentHighlighted.map((keyword, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => removeHighlight(keyword)}
+                        className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-sm flex items-center hover:bg-yellow-200 transition-colors"
+                      >
+                        {keyword}
+                        <X size={12} className="ml-1" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
-            <button onClick={toggleImportant} className="ml-2">
-              <Star size={24} fill={isImportant ? "gold" : "none"} stroke={isImportant ? "gold" : "currentColor"} />
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6 p-8 text-center">
+            <BookOpen size={48} className="text-slate-400 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-slate-800 mb-2 font-work-sans">Không có</h3>
+            <p className="text-slate-600 mb-6 font-open-sans">Không tìm thấy câu hỏi nào.</p>
+            <button
+              onClick={clearSearchFilter}
+              className="px-6 py-2 border border-gray-300 text-slate-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+            >
+              Xóa tìm kiếm
             </button>
           </div>
-          <div className="p-6">
-            <div className="space-y-3">
-              {currentQuestion.options.map((option, index) => {
-                const isSelected = selectedAnswers.includes(option)
-                const isCorrectOption = currentQuestion.answers.includes(String.fromCharCode(65 + index))
+        )}
 
-                let buttonClasses =
-                  "w-full flex items-center justify-between p-4 border rounded-lg text-left transition-all duration-200 min-h-[60px]"
-
-                if (showAnswer) {
-                  if (isCorrectOption) {
-                    buttonClasses += " bg-green-100 border-green-500 text-green-800"
-                  } else if (isSelected && !isCorrectOption) {
-                    buttonClasses += " bg-red-100 border-red-500 text-red-800"
-                  } else {
-                    buttonClasses += " border-gray-200 text-slate-600"
-                  }
-                } else if (isSelected) {
-                  buttonClasses += " border-emerald-500 bg-emerald-50 text-emerald-800"
-                } else {
-                  buttonClasses += " border-gray-200 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
-                }
-
-                return (
-                  <button
-                    key={index}
-                    onClick={() => handleAnswerSelect(option)}
-                    disabled={showAnswer}
-                    className={buttonClasses}
-                  >
-                    <div className="flex items-center flex-1">
-                      <span className="font-semibold text-base mr-3 min-w-[20px]">
-                        {String.fromCharCode(65 + index)}.
-                      </span>
-                      <span className="flex-1 text-base font-open-sans select-text"
-                        dangerouslySetInnerHTML={{ __html: highlightText(option.substring(2), currentHighlighted) }}
-                      ></span>
-                    </div>
-                    {showAnswer && isCorrectOption && <CheckCircle size={20} />}
-                    {showAnswer && isSelected && !isCorrectOption && <X size={20} />}
-                  </button>
-                )
-              })}
-            </div>
-
-            {isMultipleChoice && !showAnswer && (
-              <div className="mt-6">
-                <button
-                  onClick={handleCheckAnswers}
-                  disabled={selectedAnswers.length === 0}
-                  className="w-full px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed font-medium"
-                >
-                  Kiểm tra
-                </button>
-              </div>
-            )}
-
-            {showAnswer && (
-              <div
-                className={`mt-6 p-4 rounded-lg ${
-                  isCorrect ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
-                }`}
-              >
-                <div className="flex items-center mb-2">
-                  {isCorrect ? <CheckCircle size={20} className="mr-2" /> : <X size={20} className="mr-2" />}
-                  <span className="font-semibold font-open-sans">{isCorrect ? "Chính xác!" : "Sai rồi!"}</span>
-                </div>
-                {!isCorrect && (
-                  <p className="text-sm font-open-sans">
-                    Đáp án đúng: {currentQuestion.answers.map(a => currentQuestion.options[a.charCodeAt(0) - 65]).join(", ")}
-                  </p>
-                )}
-                {!isCorrect && (
-                  <div className="mt-4">
-                    <p className="text-sm italic font-open-sans mb-2">
-                      Chọn văn bản trong câu hỏi hoặc đáp án, nhập trực tiếp keyword.
-                    </p>
-                    <form onSubmit={handleKeywordSubmit} className="flex gap-2 items-center">
-                      <input
-                        type="text"
-                        value={keywordInput}
-                        onChange={handleKeywordInput}
-                        placeholder="Nhập keyword để đánh dấu..."
-                        className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none font-open-sans"
-                      />
-                      <button
-                        type="submit"
-                        disabled={!keywordInput.trim()}
-                        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
-                      >
-                        <Plus size={16} />
-                        Thêm
-                      </button>
-                    </form>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {showAnswer && !isCorrect && hasHighlights && (
-              <div className="mt-4">
-                <label className="block text-sm font-medium text-slate-700 mb-2">Keywords đã đánh dấu:</label>
-                <div className="flex flex-wrap gap-2">
-                  {currentHighlighted.map((keyword, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => removeHighlight(keyword)}
-                      className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-sm flex items-center hover:bg-yellow-200 transition-colors"
-                    >
-                      {keyword}
-                      <X size={12} className="ml-1" />
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex justify-between items-center">
+        <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
           <button
             onClick={prevQuestion}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-slate-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+            className="flex-1 sm:flex-none flex items-center gap-2 px-4 py-2 border border-gray-300 text-slate-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
           >
             <ArrowLeft size={16} />
             Câu trước
@@ -777,7 +998,7 @@ export default function StudyPage() {
 
           <button
             onClick={resetQuestion}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-slate-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+            className="flex-1 sm:flex-none flex items-center gap-2 px-4 py-2 border border-gray-300 text-slate-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
           >
             <RotateCcw size={16} />
             Làm lại
@@ -785,13 +1006,19 @@ export default function StudyPage() {
 
           <button
             onClick={nextQuestion}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium"
+            className="flex-1 sm:flex-none flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium"
           >
             Câu tiếp
             <ArrowRight size={16} />
           </button>
         </div>
       </div>
+
+      {snackbarMessage && (
+        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 px-6 py-3 bg-red-500 text-white rounded-lg shadow-lg z-50">
+          {snackbarMessage}
+        </div>
+      )}
     </div>
   )
 }
